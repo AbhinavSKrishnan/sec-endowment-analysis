@@ -80,7 +80,7 @@
     dir_filing_tables <- paste0(p_dir_in_base, "Filing_Tables")
     
     # import dataset
-    filing_tables <- list.files(dir_filing_tables, full.names = FALSE)
+    filing_tables <- as.vector(list.files(dir_filing_tables, full.names = FALSE))
     # NVM dont want to do this now
       # OKAY so I set full.names to FALSE because I want to string split the names so I can identify each university
       # I can generate full names using dir_filing_tables later
@@ -88,18 +88,21 @@
     # create for loop to read in each filing table
     # we want the for loop to add each filing table to a list named by university
     
-    ls_fltbls <- list()
+    # ls_fltbls <- list()
     dt_fltbls <- data.table()
     
-    names(ls_fltbls) <- filing_tables
+    # names(ls_fltbls) <- filing_tables
     
-    for(i in 1:length(ls_fltbls$names)){
+    for(i in 1:length(filing_tables)){
       
       # extract name of first element
-      current_filename <- ls_fltbls$names[i]
+      current_filename <- as.vector(filing_tables[i])
       
       # split current_filename into parts
       filename_parts <- as.vector(str_split(current_filename, "_"))
+        # isolate each part as a separate vector
+        current_cik <- str_replace(filename_parts[[1]][2], "CIK", "")
+        current_entity_name <- str_replace(filename_parts[[1]][3], ".csv", "")
       
       # create full.name filepath for ith filing table
       current_filepath <- paste0(dir_filing_tables, "/", current_filename)
@@ -115,44 +118,69 @@
         # should be able to attach the CIK number as well
       
       # add metadata to current_fltbl
-      current_fltbl[, Entity.Name = ]
+      current_fltbl[, c("Entity.Name", "CIK.Number") := .(current_entity_name, current_cik)]
       
       # bind current_fltbl to existing dt_fltbls
       dt_fltbls <- rbind(dt_fltbls, current_fltbl)
       
     }
     
-    # import first element of filing_tables
-    fltbl.uchicago <- as.data.table(read.csv(filing_tables[1])) # yay this works!
-    # later, we can automate this process with a for loop
+    # # import first element of filing_tables
+    # fltbl.uchicago <- as.data.table(read.csv(filing_tables[1])) # yay this works!
+    # # later, we can automate this process with a for loop
     
-    # extract first ascension number
-    filing.1 <- fltbl.uchicago[Film.number.s. == "201240648", Accession.number]
+    # EXTRACT ASCCENSION NUMBER + CONSTRUCT FILING URL
     
-    # construct complete url to filing page
+    # before we move onto the next step of extracting the ascension number, we need to remove any filings that aren't
+      # 13F-HR and 13F-HR/A are what we're looking for
     
-    # we're trying to recreate this: 
-    # https://www.sec.gov/Archives/edgar/data/314957/000110465920115172/0001104659-20-115172-index.htm
-    # https://www.sec.gov/Archives/edgar/data/314957/000110465920115172/0001104659-20-115172/-index.htm
+    # filter by Form.type
+    # dt_13f <- dt_fltbls[Form.type %like% "13F-HR"]
     
+      # now we can extract ascension numbers and create urls in the same table
+      # since we've created a datatable, we can avoid using a for loop, just need to referentially create a new column
+    
+      # wait I can combine these into one step
+    
+    # create parameter for suffix
     p_filing_suffix <- "-index.htm"
     
-    filing.url <- paste(p_url_data, cik.uchicago, filing.1, p_filing_suffix, sep = "/")
-    # https://www.sec.gov/Archives/edgar/data/314957/0001104659-20-115172/-index.htm
+    # filter datatagble to Form 13F and create filing URL
+    dt_13f <- dt_fltbls[Form.type %like% "13F-HR", 
+                        Filing.URL := paste(p_url_data, CIK.Number, gsub("-", "", x = Accession.number), paste0(Accession.number, p_filing_suffix), sep = "/")]
     
-    # okay we're missing a collapsed ascension number in between the cik number and the hyphenated asccension number. weird right?
+    # OKAY YAY THIS WORKS!!
     
-    # try again
-    filing.url <- paste(p_url_data, cik.uchicago, gsub("-", "", x = filing.1), paste0(filing.1, p_filing_suffix), sep = "/")
     
-    # https://www.sec.gov/Archives/edgar/data/314957/000110465920115172/0001104659-20-115172/-index.htm
-    # okay this looks right! lets run a compare script real quick
-    identical(filing.url, "https://www.sec.gov/Archives/edgar/data/314957/000110465920115172/0001104659-20-115172-index.htm")
+  # TESTING
     
-    # TRUE!
-    
-    # okay lets stop here
-    # Okay so I should be able to feed the generate url into the next step
+    # # extract first ascension number
+    # # filing.1 <- fltbl.uchicago[Film.number.s. == "201240648", Accession.number]
+    # 
+    # # construct complete url to filing page
+    # 
+    # # we're trying to recreate this: 
+    # # https://www.sec.gov/Archives/edgar/data/314957/000110465920115172/0001104659-20-115172-index.htm
+    # # https://www.sec.gov/Archives/edgar/data/314957/000110465920115172/0001104659-20-115172/-index.htm
+    # 
+    # # p_filing_suffix <- "-index.htm"
+    # 
+    # # filing.url <- paste(p_url_data, cik.uchicago, filing.1, p_filing_suffix, sep = "/")
+    # # https://www.sec.gov/Archives/edgar/data/314957/0001104659-20-115172/-index.htm
+    # 
+    # # okay we're missing a collapsed ascension number in between the cik number and the hyphenated asccension number. weird right?
+    # 
+    # # try again
+    # filing.url <- paste(p_url_data, cik.uchicago, gsub("-", "", x = filing.1), paste0(filing.1, p_filing_suffix), sep = "/")
+    # 
+    # # https://www.sec.gov/Archives/edgar/data/314957/000110465920115172/0001104659-20-115172/-index.htm
+    # # okay this looks right! lets run a compare script real quick
+    # identical(filing.url, "https://www.sec.gov/Archives/edgar/data/314957/000110465920115172/0001104659-20-115172-index.htm")
+    # 
+    # # TRUE!
+    # 
+    # # okay lets stop here
+    # # Okay so I should be able to feed the generate url into the next step
 
 # ============================== STAGE TWO: Filing Page ==============================
 
@@ -160,6 +188,8 @@
   # filing.url <- "https://www.sec.gov/Archives/edgar/data/314957/000110465920115172/0001104659-20-115172-index.htm"
   
   # now that we can generate the filing url from the cik number and the ascension numbers, we don't need to manually set it
+    
+    
     
   # adding user agent to url header to spoof request
   filing.spoof <- GET(filing.url, add_headers('user-agent' = 'SEC-13F-Scraper ([[abhinav.s.krishnan@vanderbilt.edu]])'))
