@@ -185,14 +185,30 @@
         # the a tag, along with href =, is used to denote hyperlinks
       
       # Unlist list of hyperlinks obtained from filing webpage
-      filing.links <- data.table(unlist(filing.html))
+      filing.links <- as.vector(unlist(filing.html))
       
-      # filter to hyperlink to Form 13F html infotable
-      inftbl.url.partial <- filing.links[grepl("infotable.xml", V1) & grepl("Form13F", V1)]
-        # NOTE: Here we're assuming that all infotables are marked as such. we may need to do this by reference instead
+      # filter to hyperlink to .xml infotable that includes one of "form", "infotable" or "13f"
+      inftbl.url.partial <- filing.links[grepl(".xml", filing.links) & 
+                                          (grepl("form", filing.links) | grepl("infotable", filing.links) | grepl("13f", filing.links))]
       
-      # append base url to partial url
-      inftbl.url <- inftbl.url.partial[, paste0(p_url_base, V1)] # yay this works too!
+      is.na(inftbl.url.partial[1])
+       
+        # okay this solution is much less elegant, but it's the only way I ca
+      
+        # filing.links[V1 %like% ".xml" & (V1 %like% "form" | V1 %like% "infotable" | V1 %like% "13f")]
+      
+        # this will typically output two urls, so we need to select one of them 
+        # I'm not sure if there's a difference between the two, so we'll just choose the first one
+      
+        # PROBLEM: when none of the infotable urls match the requirements above, the code returns an empty datatable
+          # This causes the line below to create an infotable url with NA pasted at the end
+          # The infotable scraping code can't read these urls, so it spits out an error
+      
+      # select the first URL and append base url to partial url
+      # inftbl.url <- inftbl.url.partial[1, paste0(p_url_base, V1)] # yay this works too!
+      inftbl.url <- paste0(p_url_base, inftbl.url.partial[1])
+      
+        
       
       # Add inftbl url to dt_13f
       dt_13f[Filing.URL == filing.url, Infotable.URL := inftbl.url]
@@ -208,8 +224,10 @@
     # since the url to the infotable is often named differently, this method is not robust.
     # Instead, I should try to extract the table on the webpage AND THEN use the "TYPE" column to identify the url I need
       
-    # UPDATE: I just ran this for loop and it works without errors, but the problem above is still an issue.
+    # UPDATE 1: I just ran this for loop and it works without errors, but the problem above is still an issue.
       # We can address this in the next version
+      
+      # UPDATE 2: I could not find a way to connect the plaintext on the webpage table to the hyperlink, so I have settled for referentially selecting the hyperlink. Let's see if this works!
   
 # =============================================================================
 # =============================== Extracting Infotable ====================================
@@ -269,8 +287,15 @@
           # Set new column names
           setnames(current.inftbl.dt, old = old_inftbl_names, new = new_inftbl_names)
           
-          # Remove header rows
-          # current.inftbl.dt[!grepl(pattern = inftbl_remove_rows, x = 'Name of Issuer')]
+          # For some reason, these names aren't carrying over to ls_entities. I see it working in dt_entity though
+          # NEVERMIND PROBLEM SOLVED - I was looking at the wrong element
+          
+          # Remove header rows by location 
+          current.inftbl.dt <- as.data.table(tail(current.inftbl.dt, -3))
+            # this method is not robust to changes in infotable formats, but neither is th rest of the code, so I'm not going to worry about it
+          
+          # Add current year variable
+          current.inftbl.dt[, Year := current_year]
           
           # RBind current infotable datatable to collective infotable datatable
           dt_entity <- rbind(dt_entity, current.inftbl.dt)
@@ -279,11 +304,42 @@
         
       }
       
+      # Add enclosing datatable to entity element in list
       ls_entities[[entity]] <- dt_entity
       
-    }  
+    }
+        
       
+    # Yay! So this for loop above successfully creates a list of stacked datatables with information scraped from every infotable that matches the current naming specifications above. 
+    # The next step is to go back and restructure this process around the document format files on the Filing Detail Page for each Filing
+        
+        
+# =============================================================================
+# ================= WOKRSPACE: Document Format Files Table =====================
+# =============================================================================
+
+    # xpath: /html/body/div[4]/div[2]/div/table
+    test.url <- "https://www.sec.gov/Archives/edgar/data/1664741/000156761921018663/0001567619-21-018663-index.htm"
+        
+        
+    # Spoof user agent
+    test.spoof <- GET(test.url, add_headers('user-agent' = 'SEC-13F-Scraper ([[abhinav.s.krishnan@vanderbilt.edu]])'))
     
+    # Extract all hyperlinks from webpage
+    test.html <- test.spoof %>% 
+      read_html() %>% 
+      html_elements(xpath = "/html/body/div[4]/div[2]/div/table") %>% # here, using the html class works better than trying to use the xpath
+      html_table()
+    
+    # okay so I'm able to extract the table and the links but I'm unable to connect the two. In this case, I guess I'll just have to use the links directly
+    
+    test.links <- test.spoof %>% 
+      read_html() %>%
+      html_elements('a') %>% # here, using the html class works better than trying to use the xpath
+      html_attrs()
+
+    # Unlist list of hyperlinks obtained from filing webpage
+    dt.test.links <- data.table(unlist(test.links))
       
 # ============================== WORKSPACE: Company Search Page ==============================
   
@@ -378,7 +434,7 @@
   
   # this solution seems to complex because it requires something called Docker - I'd prefer not to get too deep into this
 
-# ==================== STAGE THREE: Filing Table Extract =======================
+# ==================== WORKSPACE: Filing Table Extract =======================
   
   # adding user agent to url header to spoof request
   inftbl.spoof <- GET(inftbl.url, add_headers('user-agent' = 'SEC-13F-Scraper ([[abhinav.s.krishnan@vanderbilt.edu]])'))
@@ -394,14 +450,12 @@
   # for some reason, specifying .FormData in html_node() yields an empty table. 
   # Using xpath = [xmlpath] works well!
   
-# ============================== WORKSPACE ==============================   
-    
+# ============================== WORKSPACE: Keyset and CIK Number generation ==============================   
 
-
-    
-    
-    
-    # Load keyset
+  
+  
+  
+   # Load keyset
     keyset <- as.data.table(read.csv(paste0(p_dir_in_base, "T-20-SECFilings - Sheet1.csv")))
     
     # Format keyset
@@ -411,7 +465,6 @@
 
     # load filelist from edgar
     
-      
       
   html.chicago <- read_html("https://www.sec.gov/edgar/browse/?CIK=1728827")
     
