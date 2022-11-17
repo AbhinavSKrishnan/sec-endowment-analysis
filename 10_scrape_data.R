@@ -187,28 +187,35 @@
       # Unlist list of hyperlinks obtained from filing webpage
       filing.links <- as.vector(unlist(filing.html))
       
+        # NOTE: filing.links could also be a data.table with some changes to the if statement below
+      
       # filter to hyperlink to .xml infotable that includes one of "form", "infotable" or "13f"
       inftbl.url.partial <- filing.links[grepl(".xml", filing.links) & 
                                           (grepl("form", filing.links) | grepl("infotable", filing.links) | grepl("13f", filing.links))]
       
-      is.na(inftbl.url.partial[1])
-       
-        # okay this solution is much less elegant, but it's the only way I ca
       
-        # filing.links[V1 %like% ".xml" & (V1 %like% "form" | V1 %like% "infotable" | V1 %like% "13f")]
+      # SOLVED - PROBLEM: 
+        # When none of the infotable urls match the requirements above, the code returns an empty datatable
+        # This causes the line below to create an infotable url with NA pasted at the end
+        # The infotable scraping code can't read these urls, so it spits out an error
       
-        # this will typically output two urls, so we need to select one of them 
-        # I'm not sure if there's a difference between the two, so we'll just choose the first one
-      
-        # PROBLEM: when none of the infotable urls match the requirements above, the code returns an empty datatable
-          # This causes the line below to create an infotable url with NA pasted at the end
-          # The infotable scraping code can't read these urls, so it spits out an error
-      
-      # select the first URL and append base url to partial url
-      # inftbl.url <- inftbl.url.partial[1, paste0(p_url_base, V1)] # yay this works too!
-      inftbl.url <- paste0(p_url_base, inftbl.url.partial[1])
-      
+      # Check if url exists
+      if (is.na(inftbl.url.partial[1])) {
         
+        # set URL to NA
+        inftbl.url <- "NA"
+        
+      } else {
+        
+        # Paste base url and first partial url
+        inftbl.url <- paste0(p_url_base, inftbl.url.partial[1])
+          # this will typically output two urls, so we need to select one of them 
+          # I'm not sure if there's a difference between the two, so we'll just choose the first one
+        
+      }
+      
+      # Deprecated Method:
+        # inftbl.url <- inftbl.url.partial[1, paste0(p_url_base, V1)] # yay this works too!
       
       # Add inftbl url to dt_13f
       dt_13f[Filing.URL == filing.url, Infotable.URL := inftbl.url]
@@ -255,28 +262,28 @@
         # Set Header rows to be removed
         inftbl_remove_rows <- c("COLUMN 1", "", "NAME OF ISSUER")
       
-    for (entity in dt_metadata[, current_entity_name]) {
+    for (current_entity in dt_metadata[, current_entity_name]) {
       
       # Create empty datatable to store datatbles for each entity
       dt_entity <- data.table()
       
-      for (inftbl.url in dt_13f[Entity.Name == entity, Infotable.URL]) {
+      for (current.inftbl.url in dt_13f[Entity.Name == current_entity, Infotable.URL]) {
         
         # Set if condition for NA filing URLs
         # Question: why are there NA filing urls? Need to figure out this problem.
         
-        if (is.na(inftbl.url) | inftbl.url == p_url_base) {
+        if (is.na(current.inftbl.url) | current.inftbl.url == p_url_base) {
           
           # Add inftbl url to dt_13f
-          dt_13f[Infotable.URL == inftbl.url, Infotable.URL := NA]
+          dt_13f[Infotable.URL == current.inftbl.url, Infotable.URL := NA]
           
         } else { 
           
           # Record the year of the filing
-          current_year <- dt_13f[Infotable.URL == inftbl.url, str_sub(Reporting.date, 1, 4)]
+          current_year <- dt_13f[Infotable.URL == current.inftbl.url, str_sub(Reporting.date, 1, 4)]
           
           # Spoof user agent
-          inftbl.spoof <- GET(inftbl.url, add_headers('user-agent' = 'SEC-13F-Scraper ([[abhinav.s.krishnan@vanderbilt.edu]])'))
+          inftbl.spoof <- GET(current.inftbl.url, add_headers('user-agent' = 'SEC-13F-Scraper ([[abhinav.s.krishnan@vanderbilt.edu]])'))
           
           # Extract entire table of information
           current.inftbl.dt <- inftbl.spoof %>% 
@@ -295,7 +302,7 @@
             # this method is not robust to changes in infotable formats, but neither is th rest of the code, so I'm not going to worry about it
           
           # Add current year variable
-          current.inftbl.dt[, Year := current_year]
+          current.inftbl.dt[, c("Year", "Entity") := .(current_year, current_entity)]
           
           # RBind current infotable datatable to collective infotable datatable
           dt_entity <- rbind(dt_entity, current.inftbl.dt)
@@ -305,185 +312,190 @@
       }
       
       # Add enclosing datatable to entity element in list
-      ls_entities[[entity]] <- dt_entity
+      ls_entities[[current_entity]] <- dt_entity
       
     }
         
-      
     # Yay! So this for loop above successfully creates a list of stacked datatables with information scraped from every infotable that matches the current naming specifications above. 
     # The next step is to go back and restructure this process around the document format files on the Filing Detail Page for each Filing
         
+    # Stack datatables for each entity into one large datatable for analysis   
+    dt.entities <- as.data.table(rbindlist(ls_entities, idcol = TRUE))
         
-# =============================================================================
+    
+    # OK! At this point, this code is functional and produces a sufficiently large dataset. I feel confident moving on to the next stage: analysis
+    
+    # ONE NOTE: To create a larger dataset, code can be added to process the .txt files
+        
+    
 # ================= WOKRSPACE: Document Format Files Table =====================
-# =============================================================================
 
-    # xpath: /html/body/div[4]/div[2]/div/table
-    test.url <- "https://www.sec.gov/Archives/edgar/data/1664741/000156761921018663/0001567619-21-018663-index.htm"
-        
-        
-    # Spoof user agent
-    test.spoof <- GET(test.url, add_headers('user-agent' = 'SEC-13F-Scraper ([[abhinav.s.krishnan@vanderbilt.edu]])'))
-    
-    # Extract all hyperlinks from webpage
-    test.html <- test.spoof %>% 
-      read_html() %>% 
-      html_elements(xpath = "/html/body/div[4]/div[2]/div/table") %>% # here, using the html class works better than trying to use the xpath
-      html_table()
-    
-    # okay so I'm able to extract the table and the links but I'm unable to connect the two. In this case, I guess I'll just have to use the links directly
-    
-    test.links <- test.spoof %>% 
-      read_html() %>%
-      html_elements('a') %>% # here, using the html class works better than trying to use the xpath
-      html_attrs()
-
-    # Unlist list of hyperlinks obtained from filing webpage
-    dt.test.links <- data.table(unlist(test.links))
-      
+#     # xpath: /html/body/div[4]/div[2]/div/table
+#     test.url <- "https://www.sec.gov/Archives/edgar/data/1664741/000156761921018663/0001567619-21-018663-index.htm"
+#         
+#         
+#     # Spoof user agent
+#     test.spoof <- GET(test.url, add_headers('user-agent' = 'SEC-13F-Scraper ([[abhinav.s.krishnan@vanderbilt.edu]])'))
+#     
+#     # Extract all hyperlinks from webpage
+#     test.html <- test.spoof %>% 
+#       read_html() %>% 
+#       html_elements(xpath = "/html/body/div[4]/div[2]/div/table") %>% # here, using the html class works better than trying to use the xpath
+#       html_table()
+#     
+#     # okay so I'm able to extract the table and the links but I'm unable to connect the two. In this case, I guess I'll just have to use the links directly
+#     
+#     test.links <- test.spoof %>% 
+#       read_html() %>%
+#       html_elements('a') %>% # here, using the html class works better than trying to use the xpath
+#       html_attrs()
+# 
+#     # Unlist list of hyperlinks obtained from filing webpage
+#     dt.test.links <- data.table(unlist(test.links))
+#       
 # ============================== WORKSPACE: Company Search Page ==============================
-  
-  # set filing url as an object
-  search.url <- "https://www.sec.gov/edgar/browse/?CIK=314957"
-  
-  # adding user agent to url header to spoof request
-  search.spoof <- GET(search.url, add_headers('user-agent' = 'SEC-13F-Scraper ([[abhinav.s.krishnan@vanderbilt.edu]])'))
-  
-  # Create generalized object
-  search.html <- search.spoof %>% 
-    read_html() 
-  
-  # read html using modified url with headers
-  search.html %>% 
-    html_elements('a') %>% # here, using the html class works better than trying to use the xpath
-    html_attrs()
-  
-  # hmm okay so specifying the a tag doesnt return any hyperlinks within the table on the site
-  # lets try identifying the table first and then extracting the elements i.e. html_node -> html_elements
-  
-  # read html using modified url with headers
-  search.html %>% 
-    html_node() %>% 
-    html_elements('a') %>% # here, using the html class works better than trying to use the xpath
-    html_attrs()
-  
-  # okay this isn't working either. I just noticed that there's an rss feed option
-
-  # RSS FEED OPTION
-  
-  # okay so I could construct the rss feed url using the cik number. There is an R package that will parse
-  # rss feeds: tidyrss. Let's try that!
-  
-  library(tidyRSS)
-  
-  # set url
-  rss.url <- "https://data.sec.gov/rss?cik=314957&count=40"
-  
-  # spoof agent
-  rss.spoof <- GET(rss.url, add_headers('user-agent' = 'SEC-13F-Scraper ([[abhinav.s.krishnan@vanderbilt.edu]])'))
-  
-  # extract rss feed
-  rss.feed <- tidyfeed(feed = rss.url) # okay you can't feed the spoof directly to tidyfeed
-  # it should be possible to feed arguments to GET() through the config argument to set the user-agent header
-  
-  # okay so this isn't returning what I expected - it's just a table with the feed_url and a bunch of other metadata. Let me try the website url instead
-  
-  # rss.feed <- tidyfeed(feed = rss.url) # okay this doesn't work, you have to use the RSS feed
-  
-  # I noticed that I can construct the filing url using the "Ascension Number" in the table. If I can extract the table, I should be able to get this data (and more) for each filing entry (which will be useful long term)
-  
-  # ASCENSION NUMBER METHOD
-
-  search.html %>% 
-    html_elements('table') %>% 
-    html_table()
-  
-  # This returns an empty tibble
-    
-  search.html %>% 
-    html_node(xpath = '//*[@id="filingsTable"]') %>% # this seems to be the xml path for all tables
-    html_table()
-  
-  # also returns an empty table when using an xpath for the same element
-  
-  search.html %>% 
-    html_node(xpath = '//*[@id="filingsTable"]/tbody') %>% 
-    html_attrs()
-  
-  # returns NA. ugh let's try RSelenium
-  
-  
-  # RSELENIUM METHOD
-  
-    # # Load the Library
-    # library(RSelenium)
-    # 
-    # # start the server and browser(you can use other browsers here)
-    # rD <- rsDriver(browser=c("firefox"))
-    # 
-    # driver <- rD[["client"]]
-    # 
-    # # navigate to an URL
-    # driver$navigate("http://books.toscrape.com/")
-    # 
-    # #close the driver
-    # driver$close()
-    # 
-    # #close the server
-    # rD[["server"]]$stop()
-  
-  # this solution seems to complex because it requires something called Docker - I'd prefer not to get too deep into this
-
+#   
+#   # set filing url as an object
+#   search.url <- "https://www.sec.gov/edgar/browse/?CIK=314957"
+#   
+#   # adding user agent to url header to spoof request
+#   search.spoof <- GET(search.url, add_headers('user-agent' = 'SEC-13F-Scraper ([[abhinav.s.krishnan@vanderbilt.edu]])'))
+#   
+#   # Create generalized object
+#   search.html <- search.spoof %>% 
+#     read_html() 
+#   
+#   # read html using modified url with headers
+#   search.html %>% 
+#     html_elements('a') %>% # here, using the html class works better than trying to use the xpath
+#     html_attrs()
+#   
+#   # hmm okay so specifying the a tag doesnt return any hyperlinks within the table on the site
+#   # lets try identifying the table first and then extracting the elements i.e. html_node -> html_elements
+#   
+#   # read html using modified url with headers
+#   search.html %>% 
+#     html_node() %>% 
+#     html_elements('a') %>% # here, using the html class works better than trying to use the xpath
+#     html_attrs()
+#   
+#   # okay this isn't working either. I just noticed that there's an rss feed option
+# 
+#   # RSS FEED OPTION
+#   
+#   # okay so I could construct the rss feed url using the cik number. There is an R package that will parse
+#   # rss feeds: tidyrss. Let's try that!
+#   
+#   library(tidyRSS)
+#   
+#   # set url
+#   rss.url <- "https://data.sec.gov/rss?cik=314957&count=40"
+#   
+#   # spoof agent
+#   rss.spoof <- GET(rss.url, add_headers('user-agent' = 'SEC-13F-Scraper ([[abhinav.s.krishnan@vanderbilt.edu]])'))
+#   
+#   # extract rss feed
+#   rss.feed <- tidyfeed(feed = rss.url) # okay you can't feed the spoof directly to tidyfeed
+#   # it should be possible to feed arguments to GET() through the config argument to set the user-agent header
+#   
+#   # okay so this isn't returning what I expected - it's just a table with the feed_url and a bunch of other metadata. Let me try the website url instead
+#   
+#   # rss.feed <- tidyfeed(feed = rss.url) # okay this doesn't work, you have to use the RSS feed
+#   
+#   # I noticed that I can construct the filing url using the "Ascension Number" in the table. If I can extract the table, I should be able to get this data (and more) for each filing entry (which will be useful long term)
+#   
+#   # ASCENSION NUMBER METHOD
+# 
+#   search.html %>% 
+#     html_elements('table') %>% 
+#     html_table()
+#   
+#   # This returns an empty tibble
+#     
+#   search.html %>% 
+#     html_node(xpath = '//*[@id="filingsTable"]') %>% # this seems to be the xml path for all tables
+#     html_table()
+#   
+#   # also returns an empty table when using an xpath for the same element
+#   
+#   search.html %>% 
+#     html_node(xpath = '//*[@id="filingsTable"]/tbody') %>% 
+#     html_attrs()
+#   
+#   # returns NA. ugh let's try RSelenium
+#   
+#   
+#   # RSELENIUM METHOD
+#   
+#     # # Load the Library
+#     # library(RSelenium)
+#     # 
+#     # # start the server and browser(you can use other browsers here)
+#     # rD <- rsDriver(browser=c("firefox"))
+#     # 
+#     # driver <- rD[["client"]]
+#     # 
+#     # # navigate to an URL
+#     # driver$navigate("http://books.toscrape.com/")
+#     # 
+#     # #close the driver
+#     # driver$close()
+#     # 
+#     # #close the server
+#     # rD[["server"]]$stop()
+#   
+#   # this solution seems to complex because it requires something called Docker - I'd prefer not to get too deep into this
+# 
 # ==================== WORKSPACE: Filing Table Extract =======================
-  
-  # adding user agent to url header to spoof request
-  inftbl.spoof <- GET(inftbl.url, add_headers('user-agent' = 'SEC-13F-Scraper ([[abhinav.s.krishnan@vanderbilt.edu]])'))
-  
-  # source: https://stackoverflow.com/questions/35690914/web-scraping-the-iis-based-website
-  
-  # read html using modified url with headers
-  inftbl.html <- inftbl.spoof %>% 
-    read_html() %>% 
-    html_node(xpath = '/html/body/table[2]') %>% # this seems to be the xml path for all tables
-    html_table()
-  
-  # for some reason, specifying .FormData in html_node() yields an empty table. 
-  # Using xpath = [xmlpath] works well!
-  
+#   
+#   # adding user agent to url header to spoof request
+#   inftbl.spoof <- GET(inftbl.url, add_headers('user-agent' = 'SEC-13F-Scraper ([[abhinav.s.krishnan@vanderbilt.edu]])'))
+#   
+#   # source: https://stackoverflow.com/questions/35690914/web-scraping-the-iis-based-website
+#   
+#   # read html using modified url with headers
+#   inftbl.html <- inftbl.spoof %>% 
+#     read_html() %>% 
+#     html_node(xpath = '/html/body/table[2]') %>% # this seems to be the xml path for all tables
+#     html_table()
+#   
+#   # for some reason, specifying .FormData in html_node() yields an empty table. 
+#   # Using xpath = [xmlpath] works well!
+#   
 # ============================== WORKSPACE: Keyset and CIK Number generation ==============================   
-
-  
-  
-  
-   # Load keyset
-    keyset <- as.data.table(read.csv(paste0(p_dir_in_base, "T-20-SECFilings - Sheet1.csv")))
-    
-    # Format keyset
-      
-      # remove unnecessary columns and empty rows
-      keyset[University.Name != "" & University.Name != "U.S. News Ranking"]
-
-    # load filelist from edgar
-    
-      
-  html.chicago <- read_html("https://www.sec.gov/edgar/browse/?CIK=1728827")
-    
-  # set base page
-  
-  base.url <- "https://www.sec.gov/edgar/browse/?CIK="
-    
-  vec.cik <- keyset[CIK != "" & CIK != "-", str_remove(CIK, "CIK")]
-  
-  
-  url.list <- list(names = vec.cik)
-  
-  # Loop through vector of CIK numbers
-  for (cik in vec.cik) {
-    
-    cik.url <- paste0(base.url, cik)
-    
-    url.list[[cik]] <- cik.url
-    
-  }
+# 
+#   
+#   
+#   
+#    # Load keyset
+#     keyset <- as.data.table(read.csv(paste0(p_dir_in_base, "T-20-SECFilings - Sheet1.csv")))
+#     
+#     # Format keyset
+#       
+#       # remove unnecessary columns and empty rows
+#       keyset[University.Name != "" & University.Name != "U.S. News Ranking"]
+# 
+#     # load filelist from edgar
+#     
+#       
+#   html.chicago <- read_html("https://www.sec.gov/edgar/browse/?CIK=1728827")
+#     
+#   # set base page
+#   
+#   base.url <- "https://www.sec.gov/edgar/browse/?CIK="
+#     
+#   vec.cik <- keyset[CIK != "" & CIK != "-", str_remove(CIK, "CIK")]
+#   
+#   
+#   url.list <- list(names = vec.cik)
+#   
+#   # Loop through vector of CIK numbers
+#   for (cik in vec.cik) {
+#     
+#     cik.url <- paste0(base.url, cik)
+#     
+#     url.list[[cik]] <- cik.url
+#     
+#   }
 
     
