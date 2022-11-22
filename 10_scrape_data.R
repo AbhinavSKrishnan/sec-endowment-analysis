@@ -63,7 +63,7 @@
   # ============== #
   
     # set export toggle
-    p_export <- F
+    p_opt_export <- F
     
     # set timestamp
     p_timestamp <- Sys.time()
@@ -168,7 +168,7 @@
     if (is.na(filing.url)) {
       
       # Add inftbl url to dt_13f
-      dt_13f[Filing.URL == filing.url, Infotable.URL := NA]
+      dt_13f[Filing.URL == filing.url, Infotable.URL := "DNE"]
       
     } else {
     
@@ -203,7 +203,7 @@
       if (is.na(inftbl.url.partial[1])) {
         
         # set URL to NA
-        inftbl.url <- "NA"
+        inftbl.url <- "DNE"
         
       } else {
         
@@ -272,12 +272,7 @@
         # Set if condition for NA filing URLs
         # Question: why are there NA filing urls? Need to figure out this problem.
         
-        if (is.na(current.inftbl.url) | current.inftbl.url == p_url_base) {
-          
-          # Add inftbl url to dt_13f
-          dt_13f[Infotable.URL == current.inftbl.url, Infotable.URL := NA]
-          
-        } else { 
+        if (current.inftbl.url != "DNE") {
           
           # Record the year of the filing
           current_year <- dt_13f[Infotable.URL == current.inftbl.url, str_sub(Reporting.date, 1, 4)]
@@ -321,7 +316,13 @@
         
     # Stack datatables for each entity into one large datatable for analysis   
     dt.entities <- as.data.table(rbindlist(ls_entities, idcol = TRUE))
+    
+    if (p_opt_export == T){
         
+      # Export Dataset
+      write.csv(dt.entities, file = paste0(p_dir_out, "/infotable_dataset_", p_timestamp, ".csv"))
+    
+    }
     
     # OK! At this point, this code is functional and produces a sufficiently large dataset. I feel confident moving on to the next stage: analysis
     
