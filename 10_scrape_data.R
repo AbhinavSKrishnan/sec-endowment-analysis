@@ -69,10 +69,10 @@
     p_timestamp <- Sys.time()
     
     # set output directory
-    p_dir_out <- "/Users/abhinavskrishnan/Documents/Projects/SEC-Edgar/Output"
+    p_dir_out <- "Output/"
     
     # set input directory
-    p_dir_in_base <- "/Users/abhinavskrishnan/Documents/Projects/SEC-Edgar/"
+    p_dir_in_base <- ""
     
     # set SEC base URL
     p_url_base <- "https://www.sec.gov"
@@ -91,7 +91,7 @@
     # Setup #
     
       # Create filing tables directory string
-      dir_filing_tables <- paste0(p_dir_in_base, "Filing_Tables")
+      dir_filing_tables <- paste0(getwd(), "/Filing_Tables/")
       
       # Create vector of filing table csvs in directory
       filing_tables <- as.vector(list.files(dir_filing_tables, full.names = FALSE))
