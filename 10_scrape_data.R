@@ -313,9 +313,21 @@
         
     # Yay! So this for loop above successfully creates a list of stacked datatables with information scraped from every infotable that matches the current naming specifications above. 
     # The next step is to go back and restructure this process around the document format files on the Filing Detail Page for each Filing
-        
+
+# =============================================================================
+# =============================== Formatting ====================================
+# =============================================================================
+
     # Stack datatables for each entity into one large datatable for analysis   
-    dt.entities <- as.data.table(rbindlist(ls_entities, idcol = TRUE))
+    dt.entities <- as.data.table(rbindlist(ls_entities))
+  
+    # Remove X column and change column order
+    dt.entities <- dt.entities[, c("X") := NULL]
+    setcolorder(dt.entities, c("Year", "Entity"))
+    
+# =============================================================================
+# =============================== Export ====================================
+# =============================================================================
     
     if (p_opt_export == T){
         
